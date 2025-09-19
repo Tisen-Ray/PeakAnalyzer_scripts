@@ -1,0 +1,77 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "peakanalyzer-scripts"
+version = "0.1.0"
+description = "High-performance mass spectrometry peak analysis tool combining Rust and Python"
+readme = "python/README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "PeakAnalyzer Development Team"}
+]
+keywords = ["mass-spectrometry", "peak-analysis", "rust", "python", "mzdata"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "streamlit>=1.49.1",
+    "plotly>=6.3.0",
+    "scipy>=1.16.2",
+    "numpy>=2.3.3",
+    "pandas>=2.3.2",
+    "scikit-learn>=1.7.2",
+    "joblib>=1.5.2",
+    "python-dateutil",
+    "pyarrow",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-benchmark>=5.1.0",
+    "maturin>=1.9.4,<2.0",
+    "black",
+    "ruff",
+]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme",
+]
+export = [
+    "openpyxl>=3.1.5",
+    "reportlab>=4.4.3",
+]
+
+[project.scripts]
+peakanalyzer = "python.main:main"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+select = ["E", "F", "W", "I", "N", "UP"]
+ignore = ["E501"]  # Line too long (handled by black)
+
+[tool.pytest.ini_options]
+testpaths = ["python_app/tests"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-v --tb=short"
