@@ -35,14 +35,14 @@ class VisualizationPage:
         tab1, tab2 = st.tabs(["📊 可视化分析", "⚙️ 批量处理"])
         
         with tab1:
-            # 主要布局：左侧曲线列表，右侧图表展示
-            col1, col2 = st.columns([1, 2])
-            
-            with col1:
-                self._render_curve_list_panel()
-            
-            with col2:
-                self._render_visualization_panel()
+        # 主要布局：左侧曲线列表，右侧图表展示
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            self._render_curve_list_panel()
+        
+        with col2:
+            self._render_visualization_panel()
         
         with tab2:
             self._render_batch_processing_panel()
@@ -566,7 +566,7 @@ class VisualizationPage:
                 if 'method' in key and st.session_state[key]:
                     params['smoothing']['available'] = True
                     params['smoothing']['method'] = st.session_state[key]
-                else:
+        else:
                     param_name = key.replace('smooth_', '').replace('smoothing_', '')
                     params['smoothing']['params'][param_name] = st.session_state[key]
         
@@ -617,7 +617,7 @@ class VisualizationPage:
                 params['smoothing']['params'] = getattr(curve, 'smoothing_params', {})
             
             # 峰检测和分析
-            if curve.peaks:
+        if curve.peaks:
                 if not params['peak_detection']['available']:
                     params['peak_detection']['available'] = True
                     params['peak_detection']['method'] = 'scipy_find_peaks'  # 默认方法

@@ -449,6 +449,11 @@ class DataExtractionPage:
                 curve.metadata['config_name'] = config['name']
                 curve.metadata['extraction_mode'] = 'single_file_multi_curve'
                 
+                # 确保曲线ID正确设置
+                if not hasattr(curve, 'curve_id') or not curve.curve_id:
+                    import uuid
+                    curve.curve_id = str(uuid.uuid4())
+                
                 extracted_curves.append(curve)
                 
             except Exception as e:
@@ -504,6 +509,11 @@ class DataExtractionPage:
                 # 更新曲线元数据
                 curve.metadata['original_filename'] = uploaded_file.name
                 curve.metadata['extraction_mode'] = 'batch_files'
+                
+                # 确保曲线ID正确设置
+                if not hasattr(curve, 'curve_id') or not curve.curve_id:
+                    import uuid
+                    curve.curve_id = str(uuid.uuid4())
                 curve.metadata.update(config)
                 
                 extracted_curves.append(curve)
@@ -522,7 +532,8 @@ class DataExtractionPage:
         
         if extracted_curves:
             st.success(f"🎉 成功提取了 {len(extracted_curves)} 条曲线")
-            self._show_extraction_preview(extracted_curves)
+            # 显示提取结果摘要
+            self._show_extraction_summary(extracted_curves)
         
         # 清理临时文件
         self._cleanup_temp_files()
@@ -601,6 +612,39 @@ class DataExtractionPage:
             - ✅ **MGF** - 质谱数据格式
             - ⚠️ **RAW** - 需要.NET 8.0运行时支持
             """)
+    
+    def _show_extraction_summary(self, extracted_curves: List):
+        """显示提取结果摘要"""
+        st.markdown("### 📊 提取结果摘要")
+        
+        if not extracted_curves:
+            st.info("没有成功提取的曲线")
+            return
+        
+        results_data = []
+        for curve in extracted_curves:
+            # 确保曲线ID正确设置
+            if not hasattr(curve, 'curve_id') or not curve.curve_id:
+                import uuid
+                curve.curve_id = str(uuid.uuid4())
+            
+            # 确保文件名正确设置
+            filename = curve.metadata.get('original_filename', '未知')
+            if filename and isinstance(filename, str):
+                filename = Path(filename).name
+            
+            results_data.append({
+                '文件名': filename,
+                '曲线类型': curve.curve_type,
+                '曲线ID': curve.curve_id[:8] + '...',  # 显示ID前8位
+                '数据点数': len(curve.x_values),
+                '最大强度': f"{curve.max_intensity:.0f}",
+                'RT范围': f"{curve.x_range[0]:.2f} - {curve.x_range[1]:.2f} min"
+            })
+        
+        import pandas as pd
+        df = pd.DataFrame(results_data)
+        st.dataframe(df, width='stretch')
 
     def _cleanup_temp_files(self):
         """清理临时文件"""
@@ -648,6 +692,14 @@ class DataExtractionPage:
                         config['rt_min'], config['rt_max'], config['ms_level']
                     )
                 
+                # 确保曲线ID和元数据正确设置
+                if not hasattr(curve, 'curve_id') or not curve.curve_id:
+                    import uuid
+                    curve.curve_id = str(uuid.uuid4())
+                
+                curve.metadata['original_filename'] = file_path
+                curve.metadata['extraction_mode'] = 'batch_paths'
+                
                 # 保存曲线到状态管理器
                 state_manager.add_curve(curve)
                 extracted_curves.append(curve)
@@ -691,6 +743,14 @@ class DataExtractionPage:
                         config['rt_min'], config['rt_max'], config['ms_level']
                     )
                 
+                # 确保曲线ID和元数据正确设置
+                if not hasattr(curve, 'curve_id') or not curve.curve_id:
+                    import uuid
+                    curve.curve_id = str(uuid.uuid4())
+                
+                curve.metadata['original_filename'] = file_path
+                curve.metadata['extraction_mode'] = 'batch_paths_multi_config'
+                
                 # 保存曲线到状态管理器
                 state_manager.add_curve(curve)
                 extracted_curves.append(curve)
@@ -705,4 +765,5 @@ class DataExtractionPage:
         
         if extracted_curves:
             st.success(f"🎉 成功提取了 {len(extracted_curves)} 条曲线")
-            self._show_extraction_preview(extracted_curves)
+            # 显示提取结果摘要
+            self._show_extraction_summary(extracted_curves)

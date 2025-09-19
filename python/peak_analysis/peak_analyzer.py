@@ -166,7 +166,7 @@ class PeakAnalyzer:
         except Exception as e:
             print(f"❌ 峰区域提取失败: {e}")
             return None
-    
+        
     # ===== 第3步：峰分析计算 =====
     def _detect_boundaries_clean(self, x_data: np.ndarray, y_smoothed: np.ndarray, 
                                peak_idx: int, boundary_method: str, 
@@ -216,7 +216,7 @@ class PeakAnalyzer:
         except Exception as e:
             print(f"❌ 面积计算失败: {e}")
             return 0.0
-    
+        
     def _calculate_fwhm_clean(self, x_data: np.ndarray, y_original: np.ndarray, peak_idx: int) -> float:
         """清晰的FWHM计算 - 数值精确方法"""
         try:
