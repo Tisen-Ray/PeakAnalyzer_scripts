@@ -112,6 +112,12 @@ class SmoothingProcessor:
             curve.is_smoothed = True
             working_data["is_modified"] = True
             
+            # 保存平滑参数，供后续峰分析使用（即使不确认应用）
+            curve.smoothing_method = method
+            curve.smoothing_params = params.copy()
+            working_data["smoothing_method"] = method
+            working_data["smoothing_params"] = params.copy()
+            
             # 显示处理结果统计
             st.success(f"✅ 平滑处理执行完成 - 方法: {method}")
             st.info(f"原始数据范围: {original_y.min():.0f} - {original_y.max():.0f}")
@@ -131,24 +137,29 @@ class SmoothingProcessor:
                             st.error("❌ 无法获取存储的曲线数据")
                             return False
                         
+                        # 保存原始数据供峰检测使用
+                        original_y_for_integration = working_data["original_y"].copy()
+                        
                         # 将工作副本的数据写入存储数据
                         stored_curve.y_values = curve.y_values.copy()
                         stored_curve.is_smoothed = curve.is_smoothed
+                        # 保存原始数据到存储曲线中
+                        stored_curve._original_y_values = original_y_for_integration
                         state_manager.update_curve(stored_curve)
                         
-                        # 更新工作副本的原始数据为新的存储数据
-                        working_data["original_y"] = stored_curve.y_values.copy()
+                        # 更新工作副本
+                        working_data["original_y"] = original_y_for_integration  # 保持原始数据不变
                         working_data["is_modified"] = False
                         working_data["last_applied"] = True
                         
-                        # 清除对比数据，不再显示原始曲线虚线
-                        curve._original_y_values = None
+                        # 保留原始数据用于峰检测积分，但清除对比显示
+                        curve._original_y_values = original_y_for_integration  # 保留用于峰检测
                         if hasattr(curve, '_original_peaks'):
                             curve._original_peaks = None
                         
-                        # 确保工作副本也清除对比数据
+                        # 确保工作副本也保留原始数据
                         working_data_curve = working_data["curve"]
-                        working_data_curve._original_y_values = None
+                        working_data_curve._original_y_values = original_y_for_integration
                         if hasattr(working_data_curve, '_original_peaks'):
                             working_data_curve._original_peaks = None
                         
@@ -162,14 +173,41 @@ class SmoothingProcessor:
             
             with col2:
                 if st.button("❌ 撤销", key="cancel_smoothing"):
-                    # 撤销操作 - 恢复到工作副本的原始数据
-                    curve.y_values = original_y.copy()
-                    curve.is_smoothed = False
-                    curve._original_y_values = None  # 清除对比数据
-                    working_data["is_modified"] = False
-                    st.info("已撤销平滑处理，恢复到原始数据")
-                    st.rerun()
-                    return False
+                    # 撤销操作 - 完全恢复到工作副本的原始状态
+                    try:
+                        # 从工作副本获取真正的原始数据
+                        true_original_y = working_data["original_y"].copy()
+                        
+                        # 恢复曲线对象到真正的原始状态
+                        curve.y_values = true_original_y
+                        curve.is_smoothed = False
+                        curve._original_y_values = None
+                        
+                        # 恢复工作副本中的曲线数据到真正的原始状态
+                        working_data_curve = working_data["curve"]
+                        working_data_curve.y_values = true_original_y
+                        working_data_curve.is_smoothed = False
+                        working_data_curve._original_y_values = None
+                        
+                        # 清除平滑参数
+                        for obj in [curve, working_data_curve]:
+                            if hasattr(obj, 'smoothing_method'):
+                                delattr(obj, 'smoothing_method')
+                            if hasattr(obj, 'smoothing_params'):
+                                delattr(obj, 'smoothing_params')
+                        
+                        # 更新工作副本状态
+                        working_data["is_modified"] = False
+                        for key in ["smoothing_method", "smoothing_params"]:
+                            if key in working_data:
+                                del working_data[key]
+                        
+                        st.info("✅ 已撤销平滑处理，完全恢复到真正的原始数据")
+                        st.rerun()
+                        return False
+                    except Exception as e:
+                        st.error(f"❌ 撤销失败: {str(e)}")
+                        return False
             
             return False
             

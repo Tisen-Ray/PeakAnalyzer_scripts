@@ -162,14 +162,31 @@ class BaselineCorrectionProcessor:
             
             with col2:
                 if st.button("❌ 撤销", key="cancel_baseline"):
-                    # 撤销操作 - 恢复到工作副本的原始数据
-                    curve.y_values = original_y.copy()
-                    curve.is_baseline_corrected = False
-                    curve._original_y_values = None  # 清除对比数据
-                    working_data["is_modified"] = False
-                    st.info("已撤销基线校正，恢复到原始数据")
-                    st.rerun()
-                    return False
+                    # 撤销操作 - 完全恢复到工作副本的原始状态
+                    try:
+                        # 从工作副本获取真正的原始数据
+                        true_original_y = working_data["original_y"].copy()
+                        
+                        # 恢复曲线对象到真正的原始状态
+                        curve.y_values = true_original_y
+                        curve.is_baseline_corrected = False
+                        curve._original_y_values = None
+                        
+                        # 恢复工作副本中的曲线数据到真正的原始状态
+                        working_data_curve = working_data["curve"]
+                        working_data_curve.y_values = true_original_y
+                        working_data_curve.is_baseline_corrected = False
+                        working_data_curve._original_y_values = None
+                        
+                        # 更新工作副本状态
+                        working_data["is_modified"] = False
+                        
+                        st.info("✅ 已撤销基线校正，完全恢复到真正的原始数据")
+                        st.rerun()
+                        return False
+                    except Exception as e:
+                        st.error(f"❌ 撤销失败: {str(e)}")
+                        return False
             
             return False
             

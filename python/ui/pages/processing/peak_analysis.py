@@ -34,21 +34,15 @@ class PeakAnalysisProcessor:
             help="相对于FWHM的扩展分析范围倍数"
         )
         
-        # 色谱峰积分方法（行业标准）
-        st.markdown("**峰积分方法**")
-        integration_method = st.selectbox(
-            "积分方法",
-            ["垂直分割法", "谷到谷积分", "切线基线法", "指数衰减基线", "水平基线法"],
-            index=0,
-            help="选择符合色谱分析标准的积分方法"
-        )
+        # 简化的积分配置（只保留必要参数）
+        st.markdown("**📊 峰积分配置**")
         
-        # 基线处理策略
+        # 基线处理策略（这是积分的核心）
         baseline_method = st.selectbox(
-            "基线处理",
-            ["自动基线", "线性基线", "多项式基线", "指数基线", "手动基线"],
-            index=0,
-            help="选择基线校正方法"
+            "基线校正方法",
+            ["线性基线", "多项式基线", "指数基线"],
+            index=0,  # 默认选择线性基线
+            help="选择基线校正方法，影响峰面积计算的准确性"
         )
         
         # 峰边界检测方法选择
@@ -117,36 +111,48 @@ class PeakAnalysisProcessor:
         
         # 执行按钮
         if st.button("📊 开始色谱峰分析", key="analyze_peaks", width='stretch'):
-            return self._analyze_peaks_inplace(curve, {
+            return self._analyze_peaks_direct(curve, {
                 'extend_range': extend_range,
-            'integration_method': integration_method,
-            'baseline_method': baseline_method,
-            'boundary_method': boundary_method,
-            'peak_sensitivity': peak_sensitivity,
-            'noise_tolerance': noise_tolerance,
-            'boundary_smoothing': boundary_smoothing,
-            'calc_theoretical_plates': calc_theoretical_plates,
-            'calc_tailing_factor': calc_tailing_factor,
-            'calc_asymmetry_factor': calc_asymmetry_factor,
-            'calc_resolution': calc_resolution,
-            'calc_capacity_factor': calc_capacity_factor,
-            'calc_selectivity': calc_selectivity
+                'baseline_method': baseline_method,
+                'boundary_method': boundary_method,
+                'peak_sensitivity': peak_sensitivity,
+                'noise_tolerance': noise_tolerance,
+                'boundary_smoothing': boundary_smoothing,
+                'calc_theoretical_plates': calc_theoretical_plates,
+                'calc_tailing_factor': calc_tailing_factor,
+                'calc_asymmetry_factor': calc_asymmetry_factor,
+                'calc_resolution': calc_resolution,
+                'calc_capacity_factor': calc_capacity_factor,
+                'calc_selectivity': calc_selectivity
             })
         
         return False
     
-    def _analyze_peaks_inplace(self, curve: Curve, params: Dict[str, Any]) -> bool:
-        """就地执行峰分析"""
+    def _analyze_peaks_direct(self, curve: Curve, params: Dict[str, Any]) -> bool:
+        """直接执行峰分析并覆盖结果"""
         try:
+            # 使用session_state管理工作副本
+            working_key = f"working_curve_{curve.curve_id}"
+            if working_key not in st.session_state:
+                st.error("❌ 工作副本未找到，请重新选择曲线")
+                return False
+            
+            # 获取当前工作副本数据
+            working_data = st.session_state[working_key]
+            
+            if not curve.peaks:
+                st.warning("请先进行峰检测")
+                return False
+            
             # 对每个峰进行分析（使用当前工作副本，包含所有已应用的处理）
+            analyzed_peaks = []
             for peak in curve.peaks:
                 # 使用色谱分析标准方法（所有计算逻辑都在peak_analyzer中）
                 updated_peak = self.peak_analyzer.analyze_peak(
                     curve=curve,
                     peak=peak,
                     extend_range=params.get('extend_range', 2.0),
-                    integration_method=params.get('integration_method', '垂直分割法'),
-                    baseline_method=params.get('baseline_method', '自动基线'),
+                    baseline_method=params.get('baseline_method', '线性基线'),
                     boundary_method=params.get('boundary_method', '自动选择（基于灵敏度）'),
                     peak_sensitivity=params.get('peak_sensitivity', 5),
                     noise_tolerance=params.get('noise_tolerance', 5),
@@ -158,18 +164,27 @@ class PeakAnalysisProcessor:
                     calc_capacity_factor=params.get('calc_capacity_factor', False),
                     calc_selectivity=params.get('calc_selectivity', False)
                 )
-                
-                # 直接替换峰对象
-                curve.peaks[curve.peaks.index(peak)] = updated_peak
+                analyzed_peaks.append(updated_peak)
+            
+            # 直接更新曲线和存储数据
+            import copy
+            curve.peaks = analyzed_peaks
             
             # 更新存储数据
             stored_curve = state_manager.get_curve(curve.curve_id)
-            stored_curve.peaks = curve.peaks.copy()
-            state_manager.update_curve(stored_curve)
+            if stored_curve:
+                stored_curve.peaks = copy.deepcopy(analyzed_peaks)
+                state_manager.update_curve(stored_curve)
             
-            # 显示结果
-            st.success(f"✅ 色谱峰分析完成，分析了 {len(curve.peaks)} 个峰")
-            st.info(f"📊 使用方法: 积分={params['integration_method']}, 基线={params['baseline_method']}")
+            # 更新工作副本
+            working_data_curve = working_data["curve"]
+            working_data_curve.peaks = copy.deepcopy(analyzed_peaks)
+            working_data["is_modified"] = False
+            working_data["last_applied"] = True
+            
+            st.success(f"✅ 色谱峰分析完成")
+            st.info(f"📊 使用方法: 基线校正={params['baseline_method']}, 边界检测={params['boundary_method']}")
+            st.info(f"分析了 {len(analyzed_peaks)} 个峰，结果已直接应用")
             
             # 显示峰分析结果
             self._show_peak_analysis_result(curve)

@@ -61,7 +61,7 @@ class PeakFittingProcessor:
         
         # 执行按钮
         if st.button("📈 开始峰拟合", key="fit_peaks", width='stretch'):
-            return self._fit_peaks_inplace(curve, {
+            return self._fit_peaks_with_confirm(curve, {
                 'model': self.model_mapping[model],  # 使用英文模型名
                 'extend_range': extend_range,
                 'show_residuals': show_residuals,
@@ -71,9 +71,22 @@ class PeakFittingProcessor:
         
         return False
     
-    def _fit_peaks_inplace(self, curve: Curve, params: Dict[str, Any]) -> bool:
-        """就地执行峰拟合"""
+    def _fit_peaks_with_confirm(self, curve: Curve, params: Dict[str, Any]) -> bool:
+        """执行峰拟合并允许确认应用"""
         try:
+            # 使用session_state管理工作副本
+            working_key = f"working_curve_{curve.curve_id}"
+            if working_key not in st.session_state:
+                st.error("❌ 工作副本未找到，请重新选择曲线")
+                return False
+            
+            # 获取当前工作副本数据
+            working_data = st.session_state[working_key]
+            
+            # 保存原始峰数据
+            import copy
+            original_peaks = copy.deepcopy(curve.peaks)
+            
             fitted_count = 0
             
             # 对每个峰进行拟合
@@ -85,26 +98,73 @@ class PeakFittingProcessor:
                     extend_range=params['extend_range']
                 )
                 
-                # 存储拟合结果到峰的元数据中
+                # 临时存储拟合结果到峰的元数据中
                 peak.metadata['fit_result'] = fit_result
                 peak.metadata['fit_model'] = params['model']
                 
                 if fit_result.get('success', False):
                     fitted_count += 1
             
-            # 更新存储数据
-            stored_curve = state_manager.get_curve(curve.curve_id)
-            stored_curve.peaks = curve.peaks.copy()
-            state_manager.update_curve(stored_curve)
+            # 更新工作副本状态
+            working_data["is_modified"] = True
             
-            # 显示结果
-            st.success(f"✅ 峰拟合完成，成功拟合 {fitted_count}/{len(curve.peaks)} 个峰")
+            st.success(f"✅ 峰拟合执行完成 - 模型: {params['model']}")
+            st.info(f"成功拟合了 {fitted_count}/{len(curve.peaks)} 个峰")
             
             # 显示峰拟合结果
             self._show_peak_fitting_result(curve)
             
-            # 不使用 st.rerun()，避免结果闪现
-            return True
+            # 确认应用选项
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("✅ 确认应用", key="confirm_peak_fitting"):
+                    # 确认应用 - 将拟合结果写入存储数据
+                    try:
+                        stored_curve = state_manager.get_curve(curve.curve_id)
+                        if stored_curve is None:
+                            st.error("❌ 无法获取存储的曲线数据")
+                            return False
+                        
+                        # 将拟合结果写入存储数据
+                        stored_curve.peaks = copy.deepcopy(curve.peaks)
+                        state_manager.update_curve(stored_curve)
+                        
+                        # 更新工作副本状态
+                        working_data["is_modified"] = False
+                        working_data["last_applied"] = True
+                        
+                        st.success(f"✅ 峰拟合已确认应用 (拟合了 {fitted_count} 个峰)")
+                        st.rerun()
+                        return True
+                        
+                    except Exception as e:
+                        st.error(f"❌ 确认应用失败: {str(e)}")
+                        return False
+            
+            with col2:
+                if st.button("❌ 撤销", key="cancel_peak_fitting"):
+                    # 撤销操作 - 完全恢复到拟合前状态
+                    try:
+                        import copy
+                        
+                        # 恢复曲线对象的峰数据（使用深拷贝确保独立）
+                        curve.peaks = copy.deepcopy(original_peaks)
+                        
+                        # 恢复工作副本中的峰数据（使用深拷贝确保独立）
+                        working_data_curve = working_data["curve"]
+                        working_data_curve.peaks = copy.deepcopy(original_peaks)
+                        
+                        # 更新工作副本状态
+                        working_data["is_modified"] = False
+                        
+                        st.info("✅ 已撤销峰拟合，完全恢复到拟合前状态")
+                        st.rerun()
+                        return False
+                    except Exception as e:
+                        st.error(f"❌ 撤销失败: {str(e)}")
+                        return False
+            
+            return False
             
         except Exception as e:
             st.error(f"❌ 峰拟合失败: {str(e)}")

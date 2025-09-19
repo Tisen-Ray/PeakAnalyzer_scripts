@@ -3,8 +3,8 @@
 """
 import streamlit as st
 import numpy as np
-from typing import Optional
-from core.curve import Curve
+from typing import Optional, Tuple, Dict
+from core.curve import Curve, Peak
 from core.state_manager import state_manager
 from ui.pages.processing import (
     BaselineCorrectionProcessor,
@@ -51,20 +51,31 @@ class CurveProcessingPage:
         selected_curve_id = curve_options[selected_curve_name]
         original_curve = state_manager.get_curve(selected_curve_id)
         
-        # 使用session_state管理工作副本，避免每次重新创建深拷贝
+        # 使用session_state管理工作副本，确保完整的数据保护
         working_key = f"working_curve_{selected_curve_id}"
-        if working_key not in st.session_state:
-            # 首次访问，创建工作副本
+        if working_key not in st.session_state or st.button("🔄 重置工作副本", key="reset_working_copy"):
+            # 首次访问或手动重置，创建完整的工作副本
             import copy
             st.session_state[working_key] = {
                 "curve": copy.deepcopy(original_curve),
                 "original_y": original_curve.y_values.copy(),
+                "original_peaks": copy.deepcopy(original_curve.peaks),
+                "original_state": {
+                    "is_baseline_corrected": original_curve.is_baseline_corrected,
+                    "is_smoothed": original_curve.is_smoothed,
+                    "has_peaks": len(original_curve.peaks) > 0
+                },
                 "is_modified": False,
                 "last_applied": False
             }
+            if st.button("🔄 重置工作副本", key="reset_working_copy"):
+                st.success("✅ 工作副本已重置到原始状态")
+                st.rerun()
         
-        # 获取工作副本
-        selected_curve = st.session_state[working_key]["curve"]
+        # 获取工作副本 - 每次都创建新的引用避免状态污染
+        import copy
+        working_data = st.session_state[working_key]
+        selected_curve = copy.deepcopy(working_data["curve"])
         
         # 显示曲线基本信息
         col1, col2, col3, col4 = st.columns(4)
@@ -91,8 +102,6 @@ class CurveProcessingPage:
         ])
         
         with tab1:
-            # 确保从存储的原始数据开始
-            self._reset_to_stored_data(selected_curve)
             col1, col2 = st.columns([1, 2])
             with col1:
                 self.baseline_processor.render_baseline_correction(selected_curve)
@@ -100,8 +109,6 @@ class CurveProcessingPage:
                 self._render_curve_plot(selected_curve, "baseline")
         
         with tab2:
-            # 确保从存储的原始数据开始
-            self._reset_to_stored_data(selected_curve)
             col1, col2 = st.columns([1, 2])
             with col1:
                 self.smoothing_processor.render_smoothing(selected_curve)
@@ -109,8 +116,6 @@ class CurveProcessingPage:
                 self._render_curve_plot(selected_curve, "smoothing")
         
         with tab3:
-            # 确保从存储的原始数据开始
-            self._reset_to_stored_data(selected_curve)
             col1, col2 = st.columns([1, 2])
             with col1:
                 self.peak_detection_processor.render_peak_detection(selected_curve)
@@ -118,8 +123,6 @@ class CurveProcessingPage:
                 self._render_curve_plot(selected_curve, "peak_detection")
         
         with tab4:
-            # 确保从存储的原始数据开始
-            self._reset_to_stored_data(selected_curve)
             col1, col2 = st.columns([1, 2])
             with col1:
                 self.peak_analysis_processor.render_peak_analysis(selected_curve)
@@ -127,8 +130,6 @@ class CurveProcessingPage:
                 self._render_curve_plot(selected_curve, "peak_analysis")
         
         with tab5:
-            # 确保从存储的原始数据开始
-            self._reset_to_stored_data(selected_curve)
             col1, col2 = st.columns([1, 2])
         with col1:
                 self.peak_fitting_processor.render_peak_fitting(selected_curve)
@@ -177,7 +178,7 @@ class CurveProcessingPage:
                 curve.peaks = fresh_curve.peaks.copy()
                 curve.is_baseline_corrected = fresh_curve.is_baseline_corrected
                 curve.is_smoothed = fresh_curve.is_smoothed
-                curve.is_peaks_detected = fresh_curve.is_peaks_detected
+                # curve类没有is_peaks_detected属性，通过peaks列表判断
                 
                 # 清除任何临时对比数据
                 curve._original_y_values = None
@@ -305,14 +306,18 @@ class CurveProcessingPage:
                 # 只在峰分析阶段显示FWHM标注
                 if (hasattr(peak, 'fwhm') and peak.fwhm > 0 and 
                     tab_name == "peak_analysis"):  # 只在峰分析阶段显示
-                    # 计算FWHM的左右边界
-                    fwhm_left = peak.rt - peak.fwhm / 2
-                    fwhm_right = peak.rt + peak.fwhm / 2
                     
-                    # 计算FWHM高度（峰强度的一半）
-                    fwhm_height = peak.intensity / 2
+                    # 从峰分析结果获取精确的FWHM交点信息
+                    fwhm_data = self._get_precise_fwhm_points(curve, peak)
+                    if fwhm_data:
+                        fwhm_left, fwhm_right, fwhm_height = fwhm_data
+                    else:
+                        # 备用：使用简单计算
+                        fwhm_left = peak.rt - peak.fwhm / 2
+                        fwhm_right = peak.rt + peak.fwhm / 2
+                        fwhm_height = peak.intensity / 2
                     
-                    # 添加FWHM横线（使用数据坐标）
+                    # 添加FWHM横线（使用精确的交点坐标）
                     fig.add_trace(go.Scatter(
                         x=[fwhm_left, fwhm_right],
                         y=[fwhm_height, fwhm_height],
@@ -326,17 +331,30 @@ class CurveProcessingPage:
                         hoverinfo='skip'
                     ))
                     
-                    # 添加FWHM边界标记点
+                    # 添加FWHM边界标记点（显示精确的交点位置）
                     fig.add_trace(go.Scatter(
                         x=[fwhm_left, fwhm_right],
                         y=[fwhm_height, fwhm_height],
                         mode='markers+text',
-                        marker=dict(color="purple", size=6, symbol="diamond"),
+                        marker=dict(color="purple", size=8, symbol="diamond"),
                         text=['FWHM左', 'FWHM右'],
                         textposition='bottom center',
                         textfont=dict(size=8, color="purple"),
                         showlegend=False,
-                        hovertemplate='FWHM边界<br>RT: %{x:.3f} min<extra></extra>'
+                        hovertemplate='FWHM交点<br>RT: %{x:.4f} min<br>强度: %{y:.1f}<extra></extra>'
+                    ))
+                    
+                    # 添加半高水平线延伸到曲线边缘，显示完整的半高线
+                    curve_x_min = np.min(curve.x_values)
+                    curve_x_max = np.max(curve.x_values)
+                    fig.add_trace(go.Scatter(
+                        x=[max(curve_x_min, fwhm_left - 0.1), min(curve_x_max, fwhm_right + 0.1)],
+                        y=[fwhm_height, fwhm_height],
+                        mode='lines',
+                        line=dict(color="purple", width=1, dash="dot"),
+                        name=f'峰{i+1}半高线',
+                        showlegend=False,
+                        hoverinfo='skip'
                     ))
                 
                 # 只在峰分析阶段显示峰边界标注
@@ -493,6 +511,50 @@ class CurveProcessingPage:
         # 显示图表 - 使用唯一key避免重复ID
         unique_key = f"curve_plot_{curve.curve_id}_{tab_name}" if tab_name else f"curve_plot_{curve.curve_id}"
         st.plotly_chart(fig, width='stretch', key=unique_key)
+    
+    def _get_precise_fwhm_points(self, curve: Curve, peak: Peak) -> Optional[Tuple[float, float, float]]:
+        """
+        获取精确的FWHM交点信息
+        
+        返回: (左交点RT, 右交点RT, 半高强度)
+        """
+        try:
+            # 首先尝试从峰的可视化数据中获取
+            if 'visualization_data' in peak.metadata and 'fwhm_info' in peak.metadata['visualization_data']:
+                fwhm_info = peak.metadata['visualization_data']['fwhm_info']
+                return (
+                    fwhm_info['left_intersection'],
+                    fwhm_info['right_intersection'], 
+                    fwhm_info['half_height']
+                )
+            
+            # 如果没有保存的数据，重新计算
+            from peak_analysis.peak_analyzer import PeakAnalyzer
+            analyzer = PeakAnalyzer()
+            
+            # 获取平滑数据
+            smoothed_curve_y = analyzer._get_smoothed_curve_data(curve, True)
+            
+            # 提取峰区域
+            region_data = analyzer._extract_peak_region_clean(curve, peak, 2.0, smoothed_curve_y)
+            if not region_data:
+                return None
+            
+            x_data, y_original, y_smoothed, peak_idx = region_data
+            
+            # 计算精确的FWHM信息
+            fwhm_info = analyzer._calculate_precise_fwhm_info(x_data, y_original, peak_idx)
+            
+            return (
+                fwhm_info['left_intersection'],
+                fwhm_info['right_intersection'],
+                fwhm_info['half_height']
+            )
+            
+        except Exception as e:
+            print(f"❌ 获取精确FWHM点失败: {e}")
+        
+        return None
     
     def _get_rgb_values(self, color_name):
         """获取颜色的RGB值"""

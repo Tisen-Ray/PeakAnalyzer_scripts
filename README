@@ -1,2 +1,239 @@
-该项目的目标是, 借助于mzdata来读取信息,
+# PeakAnalyzer Scripts - 峰分析器
 
+该项目是一个基于 Python + Rust 的质谱数据峰分析工具，借助于 mzdata 来读取质谱信息，提供专业的色谱峰分析功能。
+
+## 🚀 快速部署指南（使用 uv）
+
+### 前置要求
+
+1. **Python 3.10+**
+2. **Rust 工具链** (用于编译 Rust 扩展)
+3. **uv** 包管理器
+4. **Git**
+
+### 步骤 1: 安装依赖工具
+
+#### Windows 用户：
+
+```powershell
+# 1. 安装 uv
+curl -LsSf https://astral.sh/uv/install.ps1 | powershell
+
+# 2. 安装 Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# 重启终端或运行: $env:PATH += ";$env:USERPROFILE\.cargo\bin"
+
+# 3. 安装 .NET 8.0 Runtime (用于 Thermo RAW 文件支持)
+# 访问: https://dotnet.microsoft.com/download/dotnet/8.0
+```
+
+#### Linux/macOS 用户：
+
+```bash
+# 1. 安装 uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2. 安装 Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+# 3. 安装 .NET 8.0 Runtime (Linux)
+wget https://packages.microsoft.com/config/ubuntu/20.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+sudo dpkg -i packages-microsoft-prod.deb
+sudo apt-get update && sudo apt-get install -y dotnet-runtime-8.0
+```
+
+### 步骤 2: 克隆并部署项目
+
+```bash
+# 1. 克隆项目
+git clone <项目地址>
+cd PeakAnalyzer_scripts
+
+# 2. 使用 uv 创建虚拟环境并安装 Python 依赖
+uv venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# 3. 安装 Python 依赖
+uv pip install -r python/requirements.txt
+
+# 4. 编译 Rust 扩展模块
+cd python
+uv pip install maturin
+maturin develop --release
+
+# 5. 验证安装
+python -c "import peakanalyzer_scripts; print('✅ Rust 模块安装成功')"
+```
+
+### 步骤 3: 启动应用
+
+```bash
+# 在 python 目录下启动
+cd python
+streamlit run main.py
+
+# 或使用便捷启动脚本
+python start.py
+```
+
+应用将在 `http://localhost:8501` 启动。
+
+## 📁 项目结构
+
+```
+PeakAnalyzer_scripts/
+├── README                    # 本文档
+├── Cargo.toml               # Rust 项目配置
+├── pyproject.toml           # Python 项目配置
+├── uv.lock                  # uv 锁定文件
+├── src/                     # Rust 源代码
+│   ├── lib.rs              # Rust 主模块
+│   ├── curve.rs            # 曲线数据结构
+│   ├── data_loader.rs      # 数据加载器
+│   └── curve_extractor.rs  # 曲线提取器
+└── python/                  # Python 源代码
+    ├── main.py             # 主入口
+    ├── requirements.txt    # Python 依赖
+    ├── core/               # 核心模块
+    ├── ui/                 # 用户界面
+    ├── peak_analysis/      # 峰分析算法
+    ├── export/             # 导出功能
+    └── utils/              # 工具函数
+```
+
+## 🔧 功能特性
+
+### 数据提取
+- **支持格式**: mzML, mzXML, MGF, Thermo RAW
+- **曲线类型**: TIC (总离子流), BPC (基峰色谱), XIC (提取离子色谱)
+- **批量处理**: 多文件同时处理
+
+### 曲线处理
+- **基线校正**: 线性、多项式、不对称最小二乘、自适应
+- **平滑处理**: 移动平均、Savitzky-Golay、高斯滤波、中值滤波、低通滤波
+- **峰检测**: scipy_find_peaks、CWT、导数法、阈值法
+- **峰分析**: 面积积分、FWHM 计算、色谱质量参数
+- **峰拟合**: 高斯、洛伦兹、Voigt、指数修正高斯等模型
+
+### 色谱质量参数
+- **理论塔板数** (Theoretical Plates)
+- **拖尾因子** (Tailing Factor, USP)
+- **不对称因子** (Asymmetry Factor, USP)
+- **分离度** (Resolution, USP)
+- **容量因子** (Capacity Factor)
+- **选择性因子** (Selectivity Factor)
+
+### 可视化与导出
+- **多曲线对比**: 叠加视图、分离视图、对比视图
+- **交互式图表**: Plotly.js 驱动的缩放、平移、标注
+- **批量处理**: 智能参数复用，进度跟踪
+- **数据导出**: CSV、Excel、JSON 格式
+
+## ⚙️ 高级配置
+
+### Thermo RAW 文件支持
+
+如果需要处理 Thermo RAW 文件，请确保：
+
+1. **安装 .NET 8.0 Runtime**:
+   ```bash
+   # Windows
+   winget install Microsoft.DotNet.Runtime.8
+   
+   # Linux
+   sudo apt-get install dotnet-runtime-8.0
+   ```
+
+2. **验证 .NET 安装**:
+   ```bash
+   dotnet --version  # 应显示 8.x.x
+   ```
+
+### 性能优化
+
+1. **Rust Release 模式编译**:
+   ```bash
+   maturin develop --release
+   ```
+
+2. **内存设置** (对于大文件):
+   ```bash
+   export STREAMLIT_SERVER_MAX_UPLOAD_SIZE=1000
+   ```
+
+### 自定义配置
+
+编辑 `python/.streamlit/config.toml`:
+
+```toml
+[server]
+port = 8501
+maxUploadSize = 1000
+
+[theme]
+primaryColor = "#1f77b4"
+backgroundColor = "#ffffff"
+```
+
+## 🐛 常见问题
+
+### 1. Rust 模块编译失败
+```bash
+# 清理并重新编译
+cargo clean
+maturin develop --release
+```
+
+### 2. RAW 文件无法识别
+- 确保安装了 .NET 8.0 Runtime
+- 检查文件路径中无特殊字符
+- 考虑使用 ProteoWizard 转换为 mzML
+
+### 3. 内存不足
+- 减少同时处理的文件数量
+- 增加系统虚拟内存
+- 使用数据抽样功能
+
+### 4. 端口冲突
+```bash
+streamlit run main.py --server.port 8502
+```
+
+## 📊 使用示例
+
+### 基本工作流程
+
+1. **数据提取**: 上传 `.mzML` 文件 → 选择提取类型 (TIC/BPC/XIC) → 提取曲线
+2. **曲线处理**: 基线校正 → 平滑处理 → 峰检测 → 峰分析 → 峰拟合
+3. **结果可视化**: 多曲线对比 → 详细峰数据表格 → 导出结果
+
+### 批量处理
+
+1. 在"结果可视化"页面选择"批量处理"标签
+2. 选择要处理的曲线
+3. 系统自动复用之前设置的参数
+4. 一键执行批量处理
+
+## 🤝 贡献指南
+
+1. Fork 项目
+2. 创建功能分支: `git checkout -b feature/new-feature`
+3. 提交更改: `git commit -am 'Add new feature'`
+4. 推送分支: `git push origin feature/new-feature`
+5. 提交 Pull Request
+
+## 📄 许可证
+
+本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件。
+
+## 🔗 相关链接
+
+- **mzdata**: Rust 质谱数据读取库
+- **Streamlit**: Python Web 应用框架
+- **Plotly**: 交互式图表库
+- **uv**: 现代 Python 包管理器
+
+---
+
+**技术支持**: 如遇问题，请在 GitHub Issues 中反馈。

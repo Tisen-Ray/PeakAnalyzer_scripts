@@ -21,10 +21,9 @@ class PeakDetector:
             'threshold': self._detect_peaks_threshold
         }
     
-    def detect_peaks(self, curve: Curve, method: str = 'scipy_find_peaks', 
-                    **kwargs) -> List[Peak]:
+    def detect_peaks(self, curve: Curve, method: str = 'scipy_find_peaks', **kwargs) -> List[Peak]:
         """
-        检测峰
+        检测峰 - 始终在原始数据上进行检测
         
         参数:
         - curve: 输入曲线
@@ -46,7 +45,7 @@ class PeakDetector:
                            width: Optional[float] = None,
                            **kwargs) -> List[Peak]:
         """
-        使用scipy.signal.find_peaks检测峰
+        使用scipy.signal.find_peaks检测峰 - 始终在原始数据上检测
         
         参数:
         - height: 最小峰高度
@@ -54,22 +53,24 @@ class PeakDetector:
         - distance: 峰之间的最小距离（索引）
         - width: 最小峰宽度
         """
-        # 自动设置参数
-        if height is None:
-            height = np.mean(curve.y_values) + 2 * np.std(curve.y_values)
+        # 始终使用原始数据进行峰检测
+        if hasattr(curve, '_original_y_values') and curve._original_y_values is not None:
+            # 有原始数据，使用原始数据检测，但积分时也使用原始数据
+            detection_y = curve._original_y_values
+            original_y = curve._original_y_values
+            print(f"🔍 使用原始数据进行峰检测和积分")
+        else:
+            # 没有原始数据记录，使用当前数据
+            detection_y = curve.y_values
+            original_y = curve.y_values
+            print(f"🔍 使用当前数据进行峰检测和积分")
         
-        if prominence is None:
-            prominence = (np.max(curve.y_values) - np.min(curve.y_values)) * 0.1
+        # 使用用户提供的参数，不进行自动配置
+        # 如果用户未提供参数，使用None让scipy使用默认值
         
-        if distance is None:
-            # 基于数据点密度设置最小距离
-            avg_spacing = (curve.x_values[-1] - curve.x_values[0]) / len(curve.x_values)
-            min_peak_width_time = 0.1  # 最小峰宽0.1分钟
-            distance = max(1, int(min_peak_width_time / avg_spacing))
-        
-        # 检测峰
+        # 检测峰（在平滑或原始数据上）
         peaks_idx, properties = signal.find_peaks(
-            curve.y_values,
+            detection_y,
             height=height,
             prominence=prominence,
             distance=distance,
@@ -77,7 +78,7 @@ class PeakDetector:
             **kwargs
         )
         
-        return self._create_peaks_from_indices(curve, peaks_idx, properties)
+        return self._create_peaks_from_indices(curve, peaks_idx, properties, original_y)
     
     def _detect_peaks_cwt(self, curve: Curve, 
                          widths: Optional[np.ndarray] = None,
@@ -85,19 +86,28 @@ class PeakDetector:
                          noise_perc: float = 10.0,
                          **kwargs) -> List[Peak]:
         """
-        使用连续小波变换检测峰
+        使用连续小波变换检测峰 - 始终在原始数据上检测
         
         参数:
         - widths: 小波宽度范围
         - min_snr: 最小信噪比
         - noise_perc: 噪声百分位数
         """
+        # 始终使用原始数据进行峰检测
+        if hasattr(curve, '_original_y_values') and curve._original_y_values is not None:
+            detection_y = curve._original_y_values
+            original_y = curve._original_y_values
+        else:
+            detection_y = curve.y_values
+            original_y = curve.y_values
+        
+        # 使用用户提供的宽度参数，不进行自动配置
         if widths is None:
-            # 自动设置宽度范围
-            widths = np.arange(1, min(50, len(curve.y_values)//10))
+            # 如果用户未提供，使用固定的基础范围
+            widths = np.arange(1, 21)  # 固定范围1-20
         
         peaks_idx = signal.find_peaks_cwt(
-            curve.y_values,
+            detection_y,
             widths,
             min_snr=min_snr,
             noise_perc=noise_perc,
@@ -107,9 +117,9 @@ class PeakDetector:
         # 获取峰的属性
         properties = {}
         if len(peaks_idx) > 0:
-            properties['peak_heights'] = curve.y_values[peaks_idx]
+            properties['peak_heights'] = detection_y[peaks_idx]
         
-        return self._create_peaks_from_indices(curve, peaks_idx, properties)
+        return self._create_peaks_from_indices(curve, peaks_idx, properties, original_y)
     
     def _detect_peaks_derivative(self, curve: Curve,
                                 threshold: Optional[float] = None,
@@ -130,8 +140,9 @@ class PeakDetector:
         peaks_idx = np.where(sign_changes < 0)[0] + 1
         
         # 应用阈值过滤
+        # 使用用户提供的阈值，不进行自动配置
         if threshold is None:
-            threshold = np.mean(curve.y_values) + np.std(curve.y_values)
+            threshold = 1000  # 固定默认阈值
         
         peaks_idx = peaks_idx[curve.y_values[peaks_idx] > threshold]
         
@@ -162,8 +173,9 @@ class PeakDetector:
         - threshold: 强度阈值
         - min_distance: 峰之间最小距离
         """
+        # 使用用户提供的阈值，不进行自动配置
         if threshold is None:
-            threshold = np.mean(curve.y_values) + 2 * np.std(curve.y_values)
+            threshold = 1000  # 固定默认阈值
         
         # 找到超过阈值的点
         above_threshold = curve.y_values > threshold
@@ -205,38 +217,52 @@ class PeakDetector:
         return self._create_peaks_from_indices(curve, peaks_idx, properties)
     
     def _create_peaks_from_indices(self, curve: Curve, peaks_idx: np.ndarray, 
-                                  properties: Dict[str, Any]) -> List[Peak]:
-        """从峰索引创建Peak对象"""
+                                  properties: Dict[str, Any], original_y: Optional[np.ndarray] = None) -> List[Peak]:
+        """
+        从峰索引创建Peak对象
+        
+        参数:
+        - curve: 曲线对象
+        - peaks_idx: 峰索引数组
+        - properties: 峰属性字典
+        - original_y: 原始Y数据（用于积分计算），如果为None则使用curve.y_values
+        """
         peaks = []
         
+        # 确定用于积分的数据
+        integration_y = original_y if original_y is not None else curve.y_values
+        
         for i, idx in enumerate(peaks_idx):
-            if idx >= len(curve.x_values) or idx >= len(curve.y_values):
+            if idx >= len(curve.x_values) or idx >= len(integration_y):
                 continue
             
             peak_id = f"peak_{uuid.uuid4().hex[:8]}"
             rt = float(curve.x_values[idx])
-            intensity = float(curve.y_values[idx])
             
-            # 估算峰的起始和结束位置
+            # 使用原始数据的强度进行积分计算
+            intensity = float(integration_y[idx])
+            
+            # 估算峰的起始和结束位置（在平滑数据上检测边界）
             rt_start, rt_end = self._estimate_peak_boundaries(curve, idx)
             
-            # 计算峰面积（简单的三角形近似）
+            # 计算峰面积（在原始数据上积分）
             width_indices = int((rt_end - rt_start) / 
                               (curve.x_values[-1] - curve.x_values[0]) * len(curve.x_values))
             start_idx = max(0, idx - width_indices//2)
-            end_idx = min(len(curve.y_values), idx + width_indices//2)
+            end_idx = min(len(integration_y), idx + width_indices//2)
             
             if end_idx > start_idx:
-                area = float(np.trapz(curve.y_values[start_idx:end_idx], 
+                # 在原始数据上进行积分
+                area = float(np.trapz(integration_y[start_idx:end_idx], 
                                     curve.x_values[start_idx:end_idx]))
             else:
                 area = 0.0
             
-            # 估算FWHM
-            fwhm = self._estimate_fwhm(curve, idx)
+            # 估算FWHM（在原始数据上）
+            fwhm = self._estimate_fwhm_on_data(curve.x_values, integration_y, idx)
             
-            # 计算信噪比
-            noise_level = np.std(curve.y_values[:min(50, len(curve.y_values))])
+            # 计算信噪比（基于原始数据）
+            noise_level = np.std(integration_y[:min(50, len(integration_y))])
             signal_to_noise = intensity / noise_level if noise_level > 0 else float('inf')
             
             peak = Peak(
@@ -262,6 +288,14 @@ class PeakDetector:
             if 'widths' in properties and i < len(properties['widths']):
                 peak.metadata['detected_width'] = float(properties['widths'][i])
             
+            # 记录是否使用了平滑检测
+            if original_y is not None:
+                peak.metadata['detected_on_smoothed'] = True
+                peak.metadata['integrated_on_original'] = True
+            else:
+                peak.metadata['detected_on_smoothed'] = False
+                peak.metadata['integrated_on_original'] = False
+            
             peaks.append(peak)
         
         return peaks
@@ -285,6 +319,48 @@ class PeakDetector:
         rt_end = float(curve.x_values[right_idx])
         
         return rt_start, rt_end
+    
+    def _estimate_fwhm_on_data(self, x_data: np.ndarray, y_data: np.ndarray, peak_idx: int) -> float:
+        """
+        在指定数据上估算半峰宽（FWHM）
+        """
+        peak_height = y_data[peak_idx]
+        half_height = peak_height / 2
+        
+        # 找到左侧交点
+        left_intersection = None
+        for i in range(peak_idx, -1, -1):
+            if i > 0 and y_data[i] <= half_height < y_data[i-1]:
+                # 线性插值找到精确交点
+                t = (half_height - y_data[i]) / (y_data[i-1] - y_data[i])
+                left_intersection = x_data[i] + t * (x_data[i-1] - x_data[i])
+                break
+            elif y_data[i] <= half_height:
+                left_intersection = x_data[i]
+                break
+        
+        # 找到右侧交点
+        right_intersection = None
+        for i in range(peak_idx, len(y_data)):
+            if i < len(y_data) - 1 and y_data[i] <= half_height < y_data[i+1]:
+                # 线性插值找到精确交点
+                t = (half_height - y_data[i]) / (y_data[i+1] - y_data[i])
+                right_intersection = x_data[i] + t * (x_data[i+1] - x_data[i])
+                break
+            elif y_data[i] <= half_height:
+                right_intersection = x_data[i]
+                break
+        
+        # 计算FWHM
+        if left_intersection is not None and right_intersection is not None:
+            fwhm = abs(right_intersection - left_intersection)
+        else:
+            # 备用方法：使用峰宽度的1/4作为估算
+            peak_rt = x_data[peak_idx]
+            rt_range = x_data[-1] - x_data[0]
+            fwhm = rt_range / (len(x_data) * 4)  # 简单估算
+        
+        return max(fwhm, 0.001)  # 确保FWHM不为零
     
     def _estimate_fwhm(self, curve: Curve, peak_idx: int) -> float:
         """

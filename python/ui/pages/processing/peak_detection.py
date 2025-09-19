@@ -38,7 +38,7 @@ class PeakDetectionProcessor:
         
         # 操作按钮 - 垂直布局
         if st.button("🔍 执行峰检测", key="detect_peaks", width='stretch'):
-            return self._execute_peak_detection(curve, method, params)
+            return self._execute_peak_detection_direct(curve, method, params)
         
         if st.button("⏭️ 跳过", key="skip_peak_detection", width='stretch'):
             st.info("已跳过峰检测")
@@ -54,15 +54,15 @@ class PeakDetectionProcessor:
             # SciPy find_peaks 参数
             col1, col2 = st.columns(2)
             with col1:
-                height = st.slider("高度阈值", 0.0, 10000.0, 0.0, step=100.0, help="最小峰高度，0表示自动计算")
+                height = st.slider("高度阈值", 5700.0, 10000.0, 0.0, step=100.0, help="最小峰高度，0表示自动计算")
             with col2:
-                prominence = st.slider("突出度", 0.0, 1000.0, 0.0, step=10.0, help="最小突出度，0表示自动计算")
+                prominence = st.slider("突出度", 480.0 , 1000.0, 0.0, step=10.0, help="最小突出度，0表示自动计算")
             
             col3, col4 = st.columns(2)
             with col3:
-                distance = st.slider("最小距离(索引)", 1, 100, 1, help="峰之间最小距离（数据点）")
+                distance = st.slider("最小距离(索引)", 1 , 100, 1, help="峰之间最小距离（数据点）")
             with col4:
-                width = st.slider("最小峰宽度", 0.0, 50.0, 0.0, step=1.0, help="最小峰宽度，0表示自动计算")
+                width = st.slider("最小峰宽度", 23.0, 50.0, 0.0, step=1.0, help="最小峰宽度，0表示自动计算")
             
             params = {
                 'height': height if height > 0 else None,
@@ -102,7 +102,7 @@ class PeakDetectionProcessor:
             # 阈值方法参数
             col1, col2 = st.columns(2)
             with col1:
-                threshold = st.slider("强度阈值", 0.0, 10000.0, 0.0, step=100.0, help="峰强度阈值，0表示自动计算")
+                threshold = st.slider("强度阈值", 5700, 10000.0, 0.0, step=100.0, help="峰强度阈值，0表示自动计算")
             with col2:
                 min_distance = st.slider("最小距离(索引)", 1, 100, 1, help="峰之间最小距离（数据点）")
             
@@ -129,29 +129,44 @@ class PeakDetectionProcessor:
         except Exception as e:
             st.error(f"❌ 预览失败: {str(e)}")
     
-    def _execute_peak_detection(self, curve: Curve, method: str, params: Dict[str, Any]) -> bool:
-        """执行峰检测并直接应用结果"""
+    def _execute_peak_detection_direct(self, curve: Curve, method: str, params: Dict[str, Any]) -> bool:
+        """直接执行峰检测并覆盖结果"""
         try:
-            # 使用当前工作副本进行峰检测（包含所有已应用的处理）
+            # 使用session_state管理工作副本
+            working_key = f"working_curve_{curve.curve_id}"
+            if working_key not in st.session_state:
+                st.error("❌ 工作副本未找到，请重新选择曲线")
+                return False
+            
+            # 获取当前工作副本数据
+            working_data = st.session_state[working_key]
+            
+            # 执行峰检测（在当前工作副本上）
             detected_peaks = self.peak_detector.detect_peaks(
-                curve=curve,  # 使用当前工作副本，包含所有已应用的处理
+                curve=curve,  # 使用当前工作副本
                 method=method,
                 **params
             )
             
-            # 直接应用峰检测结果到存储数据
+            # 直接更新曲线和存储数据
             import copy
+            curve.peaks = detected_peaks.copy()
+            
+            # 更新存储数据
             stored_curve = state_manager.get_curve(curve.curve_id)
-            stored_curve.peaks.clear()
-            stored_curve.peaks.extend(copy.deepcopy(detected_peaks))
-            stored_curve.is_peaks_detected = True
-            state_manager.update_curve(stored_curve)
+            if stored_curve:
+                stored_curve.peaks.clear()
+                stored_curve.peaks.extend(copy.deepcopy(detected_peaks))
+                state_manager.update_curve(stored_curve)
             
-            # 更新当前显示的曲线数据
-            curve.peaks.clear()
-            curve.peaks.extend(copy.deepcopy(detected_peaks))
+            # 更新工作副本
+            working_data_curve = working_data["curve"]
+            working_data_curve.peaks = copy.deepcopy(detected_peaks)
+            working_data["is_modified"] = False
+            working_data["last_applied"] = True
             
-            st.success(f"✅ 峰检测完成，检测到 {len(detected_peaks)} 个峰")
+            st.success(f"✅ 峰检测完成 - 方法: {method}")
+            st.info(f"检测到 {len(detected_peaks)} 个峰，结果已直接应用")
             
             # 显示峰检测结果
             self._show_peak_detection_result(curve, detected_peaks, preview=False)

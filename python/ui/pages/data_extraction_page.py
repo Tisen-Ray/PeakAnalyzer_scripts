@@ -180,7 +180,7 @@ class DataExtractionPage:
             # 文件模式匹配
             file_pattern = st.text_input(
                 "文件模式",
-                value="*.mzML",
+                value="*.raw",
                 help="文件匹配模式，如 *.mzML, sample*.mzXML 等"
             )
             
